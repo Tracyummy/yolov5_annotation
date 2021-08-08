@@ -116,7 +116,7 @@ class Model(nn.Module):
             s = [1, 0.83, 0.67]  # scales
             f = [None, 3, None]  # flips (2-ud, 3-lr)
             y = []  # outputs
-            for si, fi in zip(s, f):
+            for si, fi in zip(s, f):    # scale 和 flip
                 xi = scale_img(x.flip(fi) if fi else x, si)
                 yi = self.forward_once(xi)[0]  # forward
                 # cv2.imwrite('img%g.jpg' % s, 255 * xi[0].numpy().transpose((1, 2, 0))[:, :, ::-1])  # save
@@ -204,7 +204,6 @@ class Model(nn.Module):
 
 def parse_model(d, ch):  # model_dict, input_channels(3)
     '''
-
     :param d: yaml
     :param ch: [ch] (ch is input channels)
     :return: nn.Sequential(backbone + head) , savelist
@@ -261,8 +260,8 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 args[1] = [list(range(args[1] * 2))] * len(f)
         else:
             c2 = ch[f]
-
-        m_ = nn.Sequential(*[m(*args) for _ in range(n)]) if n > 1 else m(*args)  # module
+        #
+        m_ = nn.Sequential(*[m(*args) for _ in range(n)]) if n > 1 else m(*args)  # module  扩展宽度
         t = str(m)[8:-2].replace('__main__.', '')  # module type
         np = sum([x.numel() for x in m_.parameters()])  # number params
         m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params

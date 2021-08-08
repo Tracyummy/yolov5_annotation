@@ -8,7 +8,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
-# import torchvision
+import torchvision
 
 logger = logging.getLogger(__name__)
 

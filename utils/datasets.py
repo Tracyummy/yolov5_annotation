@@ -527,7 +527,7 @@ class LoadImagesAndLabels(Dataset):
         mosaic = self.mosaic and random.random() < hyp['mosaic']
         if mosaic:
             # Load mosaic
-            img, labels = load_mosaic(self, index)
+            img, labels = load_mosaic(self, index)  # 一张新的图片，一个二维数组
             shapes = None
 
             # MixUp https://arxiv.org/pdf/1710.09412.pdf
@@ -576,9 +576,9 @@ class LoadImagesAndLabels(Dataset):
 
         nL = len(labels)  # number of labels
         if nL:
-            labels[:, 1:5] = xyxy2xywh(labels[:, 1:5])  # convert xyxy to xywh
-            labels[:, [2, 4]] /= img.shape[0]  # normalized height 0-1
-            labels[:, [1, 3]] /= img.shape[1]  # normalized width 0-1
+            labels[:, 1:5] = xyxy2xywh(labels[:, 1:5])  # convert xyxy to xywh，转换后仍然是像素坐标xywh
+            labels[:, [2, 4]] /= img.shape[0]  # normalized height 0-1，归一化到 0-1
+            labels[:, [1, 3]] /= img.shape[1]  # normalized width 0-1，归一化到 0-1
 
         if self.augment:
             # flip up-down
@@ -593,9 +593,9 @@ class LoadImagesAndLabels(Dataset):
                 if nL:
                     labels[:, 1] = 1 - labels[:, 1]
 
-        labels_out = torch.zeros((nL, 6))
+        labels_out = torch.zeros((nL, 6))   # 二维数组，0 0 0 0 0 0
         if nL:
-            labels_out[:, 1:] = torch.from_numpy(labels)
+            labels_out[:, 1:] = torch.from_numpy(labels)    # labels_out的每一行是： 0 cls x y w h
 
         # Convert
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
@@ -606,9 +606,9 @@ class LoadImagesAndLabels(Dataset):
     @staticmethod
     def collate_fn(batch):
         img, label, path, shapes = zip(*batch)  # transposed
-        for i, l in enumerate(label):
-            l[:, 0] = i  # add target image index for build_targets()
-        return torch.stack(img, 0), torch.cat(label, 0), path, shapes
+        for i, l in enumerate(label):   # 注意此处会 in-place 改变label的值
+            l[:, 0] = i  # add target image index for build_targets()，给每一批图像的标签的首列按图像id编号，labels_out的每一行变为： id cls x y w h （归一化之后的坐标）
+        return torch.stack(img, 0), torch.cat(label, 0), path, shapes   # labels: (img_id cls x y w h)
 
 
 # Ancillary functions --------------------------------------------------------------------------------------------------
@@ -649,19 +649,20 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
 
 
 def load_mosaic(self, index):
-    '''当前图片随机选3张其他图片'''
+    '''当前图片随机选3张其他图片,新建一个2倍大小的空白图片，将四张图片依次放在四个象限，并且边角和中心点对齐，超出边界部分的图片信息丢弃'''
     # loads images in a mosaic
 
     labels4 = []
     s = self.img_size
     yc, xc = [int(random.uniform(-x, 2 * s + x)) for x in self.mosaic_border]  # mosaic center x, y
-    indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices
+    indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices，随机再选3张
     for i, index in enumerate(indices):
         # Load image
         img, _, (h, w) = load_image(self, index)
 
         # place img in img4
         if i == 0:  # top left
+            '''首先预定义一个2倍大的图像img4，在该图像范围内随机选择一个中心点，然后4张图像分别和中心点对齐，超出img4边界部分裁掉'''
             img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
             x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
             x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
@@ -679,10 +680,10 @@ def load_mosaic(self, index):
         padw = x1a - x1b
         padh = y1a - y1b
 
-        # Labels
+        # Labels    标签框做相应处理
         x = self.labels[index]
         labels = x.copy()
-        if x.size > 0:  # Normalized xywh to pixel xyxy format
+        if x.size > 0:  # Normalized xywh to pixel xyxy format ，转换成像素坐标
             labels[:, 1] = w * (x[:, 1] - x[:, 3] / 2) + padw
             labels[:, 2] = h * (x[:, 2] - x[:, 4] / 2) + padh
             labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2) + padw
@@ -691,7 +692,7 @@ def load_mosaic(self, index):
 
     # Concat/clip labels
     if len(labels4):
-        labels4 = np.concatenate(labels4, 0)
+        labels4 = np.concatenate(labels4, 0)    # 4张图片合成为一张图片，4张图片对应的标签也在同一张新的图像img4上
         np.clip(labels4[:, 1:], 0, 2 * s, out=labels4[:, 1:])  # use with random_perspective
         # img4, labels4 = replicate(img4, labels4)  # replicate
 
@@ -758,6 +759,7 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scale
 
 
 def random_perspective(img, targets=(), degrees=10, translate=.1, scale=.1, shear=10, perspective=0.0, border=(0, 0)):
+    '''注意affine仿射和perspective透视的区别：仿射是平移、旋转、'''
     # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(.1, .1), scale=(.9, 1.1), shear=(-10, 10))
     # targets = [cls, xyxy]
 
@@ -771,7 +773,7 @@ def random_perspective(img, targets=(), degrees=10, translate=.1, scale=.1, shea
 
     # Perspective
     P = np.eye(3)
-    P[2, 0] = random.uniform(-perspective, perspective)  # x perspective (about y)
+    P[2, 0] = random.uniform(-perspective, perspective)  # x perspective (about y)  https://blog.csdn.net/ZHUYOUKANG/article/details/114481142 这篇博客有说明
     P[2, 1] = random.uniform(-perspective, perspective)  # y perspective (about x)
 
     # Rotation and Scale

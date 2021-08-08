@@ -545,7 +545,7 @@ def build_targets(p, targets, model):   # targets形状是：[n, 6]
     tcls, tbox, indices, anch = [], [], [], []
     gain = torch.ones(7, device=targets.device)  # normalized to gridspace gain     [1 1 1 1 1 1 1]
     ai = torch.arange(na, device=targets.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt)
-    targets = torch.cat((targets.repeat(na, 1, 1), ai[:, :, None]), 2)  # append anchor indices , (na,nt,6) (na,nt,1)
+    targets = torch.cat((targets.repeat(na, 1, 1), ai[:, :, None]), 2)  # append anchor indices
 
     g = 0.5  # bias
     off = torch.tensor([[0, 0],
