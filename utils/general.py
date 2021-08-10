@@ -475,10 +475,10 @@ class BCEBlurWithLogitsLoss(nn.Module):
         return loss.mean()
 
 
-def compute_loss(p, targets, model):  # predictions, targets, model，一批图像 一批标签
+def compute_loss(p, targets, model):  # predictions, targets, model，targets形状是：[nt, 6]，p形状是 (nl,bs,na,ny,nx,no)
     device = targets.device
     lcls, lbox, lobj = torch.zeros(1, device=device), torch.zeros(1, device=device), torch.zeros(1, device=device)
-    tcls, tbox, indices, anchors = build_targets(p, targets, model)  # targets
+    tcls, tbox, indices, anchors = build_targets(p, targets, model)  # targets  # targets形状是：[nt, 6]，p形状是 (nl,bs,na,ny,nx,no)
     h = model.hyp  # hyperparameters
 
     # Define criteria
@@ -519,7 +519,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model，一批图�
             # Classification
             if model.nc > 1:  # cls loss (only if multiple classes)
                 t = torch.full_like(ps[:, 5:], cn, device=device)  # targets
-                t[range(n), tcls[i]] = cp
+                t[range(n), tcls[i]] = cp   # label_smooth set value
                 lcls += BCEcls(ps[:, 5:], t)  # BCE
 
             # Append targets to text file
@@ -538,14 +538,14 @@ def compute_loss(p, targets, model):  # predictions, targets, model，一批图�
     return loss * bs, torch.cat((lbox, lobj, lcls, loss)).detach()
 
 
-def build_targets(p, targets, model):   # targets形状是：[n, 6]
+def build_targets(p, targets, model):   # targets形状是：[nt, 6]，p形状是 (nl,bs,na,ny,nx,no)
     # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
     det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
     na, nt = det.na, targets.shape[0]  # number of anchors, targets
     tcls, tbox, indices, anch = [], [], [], []
     gain = torch.ones(7, device=targets.device)  # normalized to gridspace gain     [1 1 1 1 1 1 1]
     ai = torch.arange(na, device=targets.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt)
-    targets = torch.cat((targets.repeat(na, 1, 1), ai[:, :, None]), 2)  # append anchor indices , (na,nt,6) (na,nt,1)
+    targets = torch.cat((targets.repeat(na, 1, 1), ai[:, :, None]), 2)  # append anchor indices , (na,nt,6) (na,nt,1) -> (na,nt,7)
 
     g = 0.5  # bias
     off = torch.tensor([[0, 0],
@@ -554,11 +554,11 @@ def build_targets(p, targets, model):   # targets形状是：[n, 6]
                         ], device=targets.device).float() * g  # offsets
 
     for i in range(det.nl):
-        anchors = det.anchors[i]
-        gain[2:6] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain
+        anchors = det.anchors[i]    # anchors (3,3,2)
+        gain[2:6] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain     [1 1 nx ny nx ny 1]
 
-        # Match targets to anchors
-        t = targets * gain
+        # Match targets to anchors，p形状是 (nl,bs,na,ny,nx,no)
+        t = targets * gain      # (na,nt,7)
         if nt:
             # Matches
             r = t[:, :, 4:6] / anchors[:, None]  # wh ratio

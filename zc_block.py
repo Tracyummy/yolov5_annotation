@@ -8,3 +8,9 @@ class Focus(nn.Module):
 
     def forward(self,x):
         return self.conv( torch.cat([ x[...,::2,::2],x[...,1::2,::2],x[...,0::2,1::2],x[...,1::2,1::2] ], dim=1) )
+
+if __name__=='__main__':
+    with open('models/yolov5s.yaml') as f:
+        import yaml
+        yml = yaml.load(f, Loader=yaml.FullLoader)  # model dict
+        print()

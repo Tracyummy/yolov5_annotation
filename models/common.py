@@ -98,7 +98,7 @@ class Concat(nn.Module):
         self.d = dimension
 
     def forward(self, x):
-        return torch.cat(x, self.d)
+        return torch.cat(x, self.d) # 输入的是 [x1,x2],每个xi是 (b,c,n,n)
 
 
 class NMS(nn.Module):

@@ -41,13 +41,14 @@ class Detect(nn.Module):
         # Detect层主要网络，对上一层的3个输入分别构建对应输入通道数的3个conv2d层
         self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
 
-    def forward(self, x):
+    def forward(self, x):   # 输入x的形状是 (nl,bs,na*no,ny,nx)
         # x = x.copy()  # for profiling
+        print("in detect: input x is ",x[0].shape)
         z = []  # inference output
         self.training |= self.export
         for i in range(self.nl): # 默认是有3层 Detect 层
             x[i] = self.m[i](x[i])  # conv
-            bs, _, ny, nx = x[i].shape
+            bs, _, ny, nx = x[i].shape  #  这里x[i]形状为 (bs,na*no,ny,nx)
             # x(bs,255,20,20) to x(bs,3,20,20,85)
             x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
 
@@ -61,7 +62,7 @@ class Detect(nn.Module):
                 y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
                 z.append(y.view(bs, -1, self.no))
 
-        return x if self.training else (torch.cat(z, 1), x)
+        return x if self.training else (torch.cat(z, 1), x)       # 训练状态下最终输出形状是 (nl,bs,na,ny,nx,no),可调试检验
 
     @staticmethod
     def _make_grid(nx=20, ny=20):
@@ -226,7 +227,10 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3]:
-            c1, c2 = ch[f], args[0]
+            # conv为例： [-1, 1, Conv, [128, 3, 2]],  # 1-P2/4
+            # BottleneckCSP: [-1, 3, BottleneckCSP, [512, False]]
+            # [-1, 1, SPP, [1024, [5, 9, 13]]]
+            c1, c2 = ch[f], args[0]     # 分别是该层的输入输出通道
 
             # Normal
             # if i > 0 and args[0] != no:  # channel expansion factor
@@ -253,8 +257,10 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
         elif m is Concat:
+            # concat: [[-1, 6], 1, Concat, [1]]
             c2 = sum([ch[-1 if x == -1 else x + 1] for x in f])
         elif m is Detect:
+            # Detect: [[17, 20, 23], 1, Detect, [nc, anchors]]
             args.append([ch[x + 1] for x in f])
             if isinstance(args[1], int):  # number of anchors
                 args[1] = [list(range(args[1] * 2))] * len(f)
@@ -284,24 +290,30 @@ if __name__ == '__main__':
     # Create model
     model = Model(opt.cfg).to(device)
     model.train()
-    img = torch.FloatTensor(1,3,416,416)
+    img = torch.zeros(2,3,416,416)
     res = model(img)
-    print("model.named_parameters(): ... \n ")
-    for name,param in model.named_parameters():
-        print(name)
+
+    # print("model.named_parameters(): ... \n ")
+    # for name,param in model.named_parameters():
+    #     print(name)
 
     print("____________________________________________________")
-    for k,v in model.__dict__.items():
-        print(k,v)
+    # for k,v in model.__dict__.items():
+    #     print(k,v)
+
     print(len(res))
     print(img.shape)
+
+    # test
+
+
     # Profile
     # img = torch.rand(8 if torch.cuda.is_available() else 1, 3, 640, 640).to(device)
     # y = model(img, profile=True)
 
     # ONNX export
-    model.model[-1].export = True
-    torch.onnx.export(model, img, opt.cfg.replace('.yaml', '.onnx'), verbose=True, opset_version=11)
+    # model.model[-1].export = True
+    # torch.onnx.export(model, img, opt.cfg.replace('.yaml', '.onnx'), verbose=True, opset_version=11)
 
     # Tensorboard
     # from torch.utils.tensorboard import SummaryWriter
