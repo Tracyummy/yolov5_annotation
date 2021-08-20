@@ -339,7 +339,7 @@ def train(hyp, opt, device, tb_writer=None):
             if fi > best_fitness:
                 best_fitness = fi
 
-            # Save model
+            # Save model，保存的是ema
             save = (not opt.nosave) or (final_epoch and not opt.evolve)
             if save:
                 with open(results_file, 'r') as f:  # create checkpoint

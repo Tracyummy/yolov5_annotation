@@ -14,12 +14,12 @@ def autopad(k, p=None):  # kernel, padding
 
 
 def DWConv(c1, c2, k=1, s=1, act=True):
-    # Depthwise convolution
+    '''Depthwise convolution： 分组卷积，参数量减为原来的 1/g'''
     return Conv(c1, c2, k, s, g=math.gcd(c1, c2), act=act)
 
 
 class Conv(nn.Module):
-    # Standard convolution： Conv+BN+ReLU
+    '''Standard convolution： Conv+BN+ReLU'''
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
         super(Conv, self).__init__()
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
@@ -35,10 +35,10 @@ class Conv(nn.Module):
 
 
 class Bottleneck(nn.Module):
-    # Standard bottleneck
+    '''Standard bottleneck: 不改变 wh, 残差连接，分组卷积'''
     def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
         super(Bottleneck, self).__init__()
-        c_ = int(c2 * e)  # hidden channels
+        c_ = int(c2 * e)  # hidden channels，通道数压缩，yaml里面设置
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = Conv(c_, c2, 3, 1, g=g)
         self.add = shortcut and c1 == c2
@@ -73,7 +73,7 @@ class SPP(nn.Module):
         c_ = c1 // 2  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = Conv(c_ * (len(k) + 1), c2, 1, 1)
-        self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
+        self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])  # 不同感受野的池化层
 
     def forward(self, x):
         x = self.cv1(x)

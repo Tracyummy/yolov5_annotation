@@ -8,7 +8,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision
+# import torchvision
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +213,7 @@ class ModelEMA:
             p.requires_grad_(False)
 
     def update(self, model):
-        # Update EMA parameters
+        # Update EMA parameters，根据本次model的参数值，更新ema的参数
         with torch.no_grad():
             self.updates += 1
             d = self.decay(self.updates)
@@ -221,9 +221,9 @@ class ModelEMA:
             msd = model.module.state_dict() if is_parallel(model) else model.state_dict()  # TODO model state_dict：保存模型参数的ordered_dict
             for k, v in self.ema.state_dict().items():
                 if v.dtype.is_floating_point:
-                    v *= d                              # d 是上一次梯度的权重
+                    v *= d                              # d 从0开始越来越接近decay
                     v += (1. - d) * msd[k].detach()     # 注意这两行核心代码
 
     def update_attr(self, model, include=(), exclude=('process_group', 'reducer')):
-        # Update EMA attributes
+        # Update EMA attributes，把 model 的参数值赋给 ema
         copy_attr(self.ema, model, include, exclude)
