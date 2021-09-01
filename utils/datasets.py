@@ -953,18 +953,36 @@ def create_folder(path='./new'):
     os.makedirs(path)  # make new output folder
 
 
-def load_mosaic1(self, index):
+def load_mosaic1():
     '''当前图片随机选3张其他图片,新建一个2倍大小的空白图片，将四张图片依次放在四个象限，并且边角和中心点对齐，超出边界部分的图片信息丢弃'''
     # loads images in a mosaic
 
     labels4 = []
-    s = self.img_size
-    yc, xc = [int(random.uniform(-x, 2 * s + x)) for x in self.mosaic_border]  # mosaic center x, y
-    indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices，随机再选3张
-    for i, index in enumerate(indices):
-        # Load image
-        img, _, (h, w) = load_image1(self, index)
+    # s = self.img_size
+    # indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices，随机再选3张
+    s = 640
 
+    paths = ["E:\\zhaichao\\yolov5_steel\\yolov5\\data\\steel\\images\\train\\173_1_1EFC66A0.jpg",
+             "E:\\zhaichao\\yolov5_steel\\yolov5\\data\\steel\\images\\train\\33_756_0631BF82.jpg",
+             "E:\\zhaichao\\yolov5_steel\\yolov5\\data\\steel\\images\\train\\35_739_9D66CF7D.jpg",
+             "E:\\zhaichao\\yolov5_steel\\yolov5\\data\\steel\\images\\train\\244_191_3ABBD9FD.jpg"]
+
+    img_sizeh = 640
+    img_sizew = 640
+    # yc, xc = [int(random.uniform(-x, 2 * s + x)) for x in [-img_sizeh // 2, -img_sizew // 2]]  # mosaic center x, y
+    yc,xc = 640, 640
+    imgs = []
+    # 读取4张图片存到imgs
+    for path in paths:
+        print(path)
+        img = cv2.imread(path)
+        imgs.append(img)
+
+    for i, img in enumerate(imgs):
+        # Load image
+        # img, _, (h, w) = load_image1(self, index)
+        h = img.shape[0]
+        w = img.shape[1]
         # place img in img4
         if i == 0:  # top left
             '''首先预定义一个2倍大的图像img4，在该图像范围内随机选择一个中心点，然后4张图像分别和中心点对齐，超出img4边界部分裁掉'''
@@ -985,32 +1003,7 @@ def load_mosaic1(self, index):
         padw = x1a - x1b
         padh = y1a - y1b
 
-        # Labels    标签框做相应处理
-        x = self.labels[index]
-        labels = x.copy()
-        if x.size > 0:  # Normalized xywh to pixel xyxy format ，转换成像素坐标
-            labels[:, 1] = w * (x[:, 1] - x[:, 3] / 2) + padw
-            labels[:, 2] = h * (x[:, 2] - x[:, 4] / 2) + padh
-            labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2) + padw
-            labels[:, 4] = h * (x[:, 2] + x[:, 4] / 2) + padh
-        labels4.append(labels)
-
-    # Concat/clip labels
-    if len(labels4):
-        labels4 = np.concatenate(labels4, 0)    # 4张图片合成为一张图片，4张图片对应的标签也在同一张新的图像img4上
-        np.clip(labels4[:, 1:], 0, 2 * s, out=labels4[:, 1:])  # use with random_perspective
-        # img4, labels4 = replicate(img4, labels4)  # replicate
-
-    # Augment
-    img4, labels4 = random_perspective(img4, labels4,
-                                       degrees=self.hyp['degrees'],
-                                       translate=self.hyp['translate'],
-                                       scale=self.hyp['scale'],
-                                       shear=self.hyp['shear'],
-                                       perspective=self.hyp['perspective'],
-                                       border=self.mosaic_border)  # border to remove
-
-    return img4, labels4
+    return Image.fromarray(img4 , 'RGB')
 
 def load_image1(self, index):
     # loads 1 image from dataset, returns img, original hw, resized hw
@@ -1030,4 +1023,6 @@ def load_image1(self, index):
 
 
 if __name__ == '__main__':
-    pass
+    img4 = load_mosaic1()
+    print(type(img4))
+    Image._show(img4)
