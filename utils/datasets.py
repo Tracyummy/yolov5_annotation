@@ -951,3 +951,83 @@ def create_folder(path='./new'):
     if os.path.exists(path):
         shutil.rmtree(path)  # delete output folder
     os.makedirs(path)  # make new output folder
+
+
+def load_mosaic1(self, index):
+    '''当前图片随机选3张其他图片,新建一个2倍大小的空白图片，将四张图片依次放在四个象限，并且边角和中心点对齐，超出边界部分的图片信息丢弃'''
+    # loads images in a mosaic
+
+    labels4 = []
+    s = self.img_size
+    yc, xc = [int(random.uniform(-x, 2 * s + x)) for x in self.mosaic_border]  # mosaic center x, y
+    indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices，随机再选3张
+    for i, index in enumerate(indices):
+        # Load image
+        img, _, (h, w) = load_image1(self, index)
+
+        # place img in img4
+        if i == 0:  # top left
+            '''首先预定义一个2倍大的图像img4，在该图像范围内随机选择一个中心点，然后4张图像分别和中心点对齐，超出img4边界部分裁掉'''
+            img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
+            x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
+            x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
+        elif i == 1:  # top right
+            x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, s * 2), yc
+            x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
+        elif i == 2:  # bottom left
+            x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(s * 2, yc + h)
+            x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
+        elif i == 3:  # bottom right
+            x1a, y1a, x2a, y2a = xc, yc, min(xc + w, s * 2), min(s * 2, yc + h)
+            x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
+
+        img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
+        padw = x1a - x1b
+        padh = y1a - y1b
+
+        # Labels    标签框做相应处理
+        x = self.labels[index]
+        labels = x.copy()
+        if x.size > 0:  # Normalized xywh to pixel xyxy format ，转换成像素坐标
+            labels[:, 1] = w * (x[:, 1] - x[:, 3] / 2) + padw
+            labels[:, 2] = h * (x[:, 2] - x[:, 4] / 2) + padh
+            labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2) + padw
+            labels[:, 4] = h * (x[:, 2] + x[:, 4] / 2) + padh
+        labels4.append(labels)
+
+    # Concat/clip labels
+    if len(labels4):
+        labels4 = np.concatenate(labels4, 0)    # 4张图片合成为一张图片，4张图片对应的标签也在同一张新的图像img4上
+        np.clip(labels4[:, 1:], 0, 2 * s, out=labels4[:, 1:])  # use with random_perspective
+        # img4, labels4 = replicate(img4, labels4)  # replicate
+
+    # Augment
+    img4, labels4 = random_perspective(img4, labels4,
+                                       degrees=self.hyp['degrees'],
+                                       translate=self.hyp['translate'],
+                                       scale=self.hyp['scale'],
+                                       shear=self.hyp['shear'],
+                                       perspective=self.hyp['perspective'],
+                                       border=self.mosaic_border)  # border to remove
+
+    return img4, labels4
+
+def load_image1(self, index):
+    # loads 1 image from dataset, returns img, original hw, resized hw
+    img = self.imgs[index]
+    if img is None:  # not cached
+        path = self.img_files[index]
+        img = cv2.imread(path)  # BGR
+        assert img is not None, 'Image Not Found ' + path
+        h0, w0 = img.shape[:2]  # orig hw
+        r = self.img_size / max(h0, w0)  # resize image to img_size
+        if r != 1:  # always resize down, only resize up if training with augmentation
+            interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
+            img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
+        return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
+    else:
+        return self.imgs[index], self.img_hw0[index], self.img_hw[index]  # img, hw_original, hw_resized
+
+
+if __name__ == '__main__':
+    pass

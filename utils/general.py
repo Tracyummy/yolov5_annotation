@@ -475,9 +475,11 @@ class BCEBlurWithLogitsLoss(nn.Module):
         return loss.mean()
 
 
-def compute_loss(p, targets, model):  # predictions, targets, model，targets形状是：[nt, 6]，p形状是 (nl,bs,na,ny,nx,no)
+def compute_loss(p, targets, model):
+    ''' predictions, targets, model，targets形状是：[nt, 6]，p形状是 (nl,bs,na,ny,nx,no) '''
     device = targets.device
     lcls, lbox, lobj = torch.zeros(1, device=device), torch.zeros(1, device=device), torch.zeros(1, device=device)
+    # 其实这一步是筛选出和真实框匹配的预测框
     tcls, tbox, indices, anchors = build_targets(p, targets, model)  # targets  # targets形状是：[nt, 6]，p形状是 (nl,bs,na,ny,nx,no)
     h = model.hyp  # hyperparameters
 
@@ -498,13 +500,15 @@ def compute_loss(p, targets, model):  # predictions, targets, model，targets形
     np = len(p)  # number of outputs
     balance = [4.0, 1.0, 0.4] if np == 3 else [4.0, 1.0, 0.4, 0.1]  # P3-5 or P3-6
     for i, pi in enumerate(p):  # layer index, layer predictions
+        #！！！ 注意这里是对预测输出逐层进行遍历
+        # pi 是 (bs,na,ny,nx,no)
         b, a, gj, gi = indices[i]  # image, anchor, gridy, gridx
         tobj = torch.zeros_like(pi[..., 0], device=device)  # target obj
 
         n = b.shape[0]  # number of targets
         if n:
             nt += n  # cumulative targets
-            ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
+            ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets，这一步是筛选出和 targets 位置匹配的 preds
 
             # Regression
             pxy = ps[:, :2].sigmoid() * 2. - 0.5
@@ -526,7 +530,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model，targets形
             # with open('targets.txt', 'a') as file:
             #     [file.write('%11.5g ' * 4 % tuple(x) + '\n') for x in torch.cat((txy[i], twh[i]), 1)]
 
-        lobj += BCEobj(pi[..., 4], tobj) * balance[i]  # obj loss
+        lobj += BCEobj(pi[..., 4], tobj) * balance[i]  # obj loss, 对Detect3个不同层设置不同的权重 balanc
 
     s = 3 / np  # output count scaling
     lbox *= h['box'] * s
@@ -537,9 +541,10 @@ def compute_loss(p, targets, model):  # predictions, targets, model，targets形
     loss = lbox + lobj + lcls
     return loss * bs, torch.cat((lbox, lobj, lcls, loss)).detach()
 
-
-def build_targets(p, targets, model):   # targets形状是：[nt, 6]，p形状是 (nl,bs,na,ny,nx,no)
-    # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
+# 处理的是targets与anchor的关系，与p无关
+def build_targets(p, targets, model):   # targets形状是：[nt, 6]， p形状是 (nl,bs,na,ny,nx,no)
+    # Build targets for compute_loss()
+    # targets : (img_id , class , x , y , w , h)
     det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
     na, nt = det.na, targets.shape[0]  # number of anchors, targets
     tcls, tbox, indices, anch = [], [], [], []
@@ -554,18 +559,18 @@ def build_targets(p, targets, model):   # targets形状是：[nt, 6]，p形状�
                         ], device=targets.device).float() * g  # offsets
 
     for i in range(det.nl):
-        anchors = det.anchors[i]    # anchors (3,3,2)
+        anchors = det.anchors[i]    # det.anchors (3,3,2)
+        # pi (bs,na,ny,nx,no)
         gain[2:6] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain     [1 1 nx ny nx ny 1]
 
         # Match targets to anchors，p形状是 (nl,bs,na,ny,nx,no)
         t = targets * gain      # (na,nt,7)
         if nt:
-            # Matches
-            r = t[:, :, 4:6] / anchors[:, None]  # wh ratio
-            j = torch.max(r, 1. / r).max(2)[0] < model.hyp['anchor_t']  # compare
+            # Matches,注意这种匹配方式，3个锚框和所有的
+            r = t[:, :, 4:6] / anchors[:, None]  # wh ratio , r : (na,nt,2)
+            j = torch.max(r, 1. / r).max(2)[0] < model.hyp['anchor_t']  # compare , j : (na,nt)
             # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
-            t = t[j]  # filter
-
+            t = t[j]  # filter, 过滤得到 和锚框形状比例不超过阈值的真实框，阈值设置的不合理可能会导致：真实框没有匹配的锚框
             # Offsets
             gxy = t[:, 2:4]  # grid xy
             gxi = gain[[2, 3]] - gxy  # inverse
@@ -582,17 +587,18 @@ def build_targets(p, targets, model):   # targets形状是：[nt, 6]，p形状�
         b, c = t[:, :2].long().T  # image, class
         gxy = t[:, 2:4]  # grid xy
         gwh = t[:, 4:6]  # grid wh
-        gij = (gxy - offsets).long()
+        gij = (gxy - offsets).long()    # 直接对 gxy取整不可以吗？为什么要减去offsets？
         gi, gj = gij.T  # grid xy indices
 
         # Append
         a = t[:, 6].long()  # anchor indices
-        indices.append((b, a, gj, gi))  # image, anchor, grid indices
-        tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
-        anch.append(anchors[a])  # anchors
-        tcls.append(c)  # class
 
-    return tcls, tbox, indices, anch
+        indices.append((b, a, gj, gi))  # image, anchor, grid indices   (nl,n,4)
+        tbox.append(torch.cat((gxy - gij, gwh), 1))  # box  (nl,n,4)
+        anch.append(anchors[a])  # anchors  anch: (nl,n,2)
+        tcls.append(c)  # class tcls:(nl,n)
+
+    return tcls, tbox, indices, anch    # 返回的是真实框所在的类别、偏移值、imd_id、最匹配的anchor下标
 
 
 def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, classes=None, agnostic=False):
