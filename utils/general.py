@@ -404,19 +404,19 @@ def box_iou(box1, box2):
     """
 
     def box_area(box):
-        # box = 4xn
+        # box = ( 4, n )
         return (box[2] - box[0]) * (box[3] - box[1])
 
     area1 = box_area(box1.T)
     area2 = box_area(box2.T)
 
     # inter(N,M) = (rb(N,M,2) - lt(N,M,2)).clamp(0).prod(2)
-    inter = (torch.min(box1[:, None, 2:], box2[:, 2:]) - torch.max(box1[:, None, :2], box2[:, :2])).clamp(0).prod(2)
+    inter = (torch.min(box1[:, None, 2:], box2[:, 2:]) - torch.max(box1[:, None, :2], box2[:, :2])).clamp(0).prod(2)    # 维度2上做点积
     return inter / (area1[:, None] + area2 - inter)  # iou = inter / (area1 + area2 - inter)
 
 
 def wh_iou(wh1, wh2):
-    # Returns the nxm IoU matrix. wh1 is nx2, wh2 is mx2
+    # Returns the nxm IoU matrix. wh1 is nx2, wh2 is mx2，用于比较两种形状的框的iou，用于anchor
     wh1 = wh1[:, None]  # [N,1,2]
     wh2 = wh2[None]  # [1,M,2]
     inter = torch.min(wh1, wh2).prod(2)  # [N,M]
@@ -603,7 +603,7 @@ def build_targets(p, targets, model):   # targets形状是：[nt, 6]， p形状�
 
 def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, classes=None, agnostic=False):
     """Performs Non-Maximum Suppression (NMS) on inference results
-
+    predictions: (bs , n, 5 + cls)
     Returns:
          detections with shape: nx6 (x1, y1, x2, y2, conf, cls)
     """
@@ -625,7 +625,7 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, 
         # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
         x = x[xc[xi]]  # confidence
 
-        # If none remain process next image
+        # If none remain process next image, 过滤完之后没有剩余框
         if not x.shape[0]:
             continue
 
@@ -663,8 +663,11 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, 
         c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
         boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
         i = torch.ops.torchvision.nms(boxes, scores, iou_thres)
+
         if i.shape[0] > max_det:  # limit detections
             i = i[:max_det]
+
+    # TODO
         if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
             try:  # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
                 iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix
@@ -677,6 +680,7 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, 
                 pass
 
         output[xi] = x[i]
+
         if (time.time() - t) > time_limit:
             break  # time limit exceeded
 
