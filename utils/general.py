@@ -659,16 +659,16 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, 
         # Sort by confidence
         # x = x[x[:, 4].argsort(descending=True)]
 
-        # Batched NMS
-        c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
+        # Batched NMS， ,不同的类分别应用NMS ， 不同类别的元素之间不会应用NMS，乘max_wh是把不同类的目标框错开到不同图片上，类别索引表示错开到第几张图片上，不同类的检测框的xy在不同图片范围内
+        c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes ， agnostic为True 表示不区分类别，所有类别的检测框一起nms
         boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
         i = torch.ops.torchvision.nms(boxes, scores, iou_thres)
 
-        if i.shape[0] > max_det:  # limit detections
+        if i.shape[0] > max_det:  # limit detections，检测框超过300个就截取前300个
             i = i[:max_det]
 
     # TODO
-        if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
+        if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)，参考WBF，效果等价
             try:  # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
                 iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix
                 weights = iou * scores[None]  # box weights
